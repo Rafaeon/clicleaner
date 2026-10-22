@@ -1,0 +1,30 @@
+[project]
+name = "clicleaner"
+version = "0.1.0"
+description = "CLICleaner — higiene e auditoria de sistema via CLI (auxiliar do Windows Defender)"
+readme = "README.md"
+authors = [
+    { name = "Rafael", email = "rafeltorress1@gmail.com" }
+]
+requires-python = "==3.12.*"
+license = "MIT"
+dependencies = [
+    "rich>=15.0.0",
+    "typer>=0.27.3",
+]
+
+[project.scripts]
+clicleaner = "clicleaner.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff.lint]
+extend-select = [
+    "UP",
+    "I",
+]
+
+[tool.ruff]
+target-version = "py312"
