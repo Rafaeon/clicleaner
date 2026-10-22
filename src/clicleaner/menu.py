@@ -22,6 +22,22 @@ from clicleaner.disk import analyze_disk
 from clicleaner.report import build_report_payload, write_html, write_json
 from clicleaner.residue import run_residue_scan
 from clicleaner.scan import format_verdict, load_api_key, run_scan
+from clicleaner.theme import (
+    ACCENT,
+    ACCENT_DIM,
+    ERR,
+    INFO,
+    MUTED,
+    OK,
+    TEXT,
+    WARN,
+    banner_panel,
+    card,
+    kv_table,
+    menu_table,
+    section,
+    status_dot,
+)
 
 console = Console()
 
@@ -37,35 +53,38 @@ class MenuEntry:
 def _pause() -> None:
     try:
         console.print()
-        input("Pressione Enter para voltar ao menu…")
+        console.input(
+            f"[dim {MUTED}]Enter para voltar ao menu[/] "
+            f"[dim {ACCENT_DIM}]/[/] [dim {MUTED}]0 para sair[/] "
+        )
     except EOFError:
         pass
 
 
 def _do_clean_dry() -> None:
-    with console.status("Calculando o que pode ser limpo…"):
+    console.print(section("Limpeza — simulação"))
+    with console.status(f"[{ACCENT_DIM}]calculando…[/]"):
         report = run_clean(build_targets(), dry_run=True)
     _render_clean_summary(report, applied=False)
     _pause()
 
 
 def _do_clean_apply() -> None:
+    console.print(section("Limpeza — aplicar"))
     console.print(
         Panel.fit(
-            "[bold yellow]ATENÇÃO[/] — esta opção [bold]remove arquivos permanentemente[/].",
-            border_style="yellow",
+            f"[bold {ERR}]ATENÇÃO[/]  arquivos serão "
+            f"[bold {TEXT}]removidos permanentemente[/].",
+            border_style=ERR,
+            padding=(0, 2),
         )
     )
-    if console.input("Digite [cyan]SIM[/] para confirmar: ").strip().upper() not in {
-        "SIM",
-        "S",
-        "Y",
-        "YES",
-    }:
-        console.print("[dim]Cancelado.[/]")
+    answer = console.input(f"Digite [{ACCENT}]SIM[/] para confirmar: ").strip().upper()
+    if answer not in {"SIM", "S", "Y", "YES"}:
+        console.print(f"[dim {MUTED}]Cancelado.[/]")
         return
 
-    with console.status("Limpando…"):
+    with console.status(f"[{ACCENT_DIM}]limpando…[/]"):
         report = run_clean(build_targets(), dry_run=False)
     _render_clean_summary(report, applied=True)
     _pause()
@@ -73,7 +92,8 @@ def _do_clean_apply() -> None:
 
 def _do_audit(min_severity: Severity, only: set[str] | None = None) -> None:
     label = "rápida" if only else "completa"
-    with console.status(f"Rodando auditoria {label}…"):
+    console.print(section(f"Auditoria {label}"))
+    with console.status(f"[{ACCENT_DIM}]varrendo sistema…[/]"):
         report = run_audit(only=only)
     _render_audit(report, min_severity=min_severity, show_all=False)
     _pause()
@@ -83,76 +103,178 @@ def _do_doctor() -> None:
     import sys
 
     admin = is_admin()
-    console.print(Panel.fit(f"CLICleaner [bold]{__version__}[/]", title="Ambiente"))
-    console.print(f"Python:   [cyan]{sys.version.split()[0]}[/]")
+    console.print(section("Ambiente"))
     console.print(
-        f"Admin:    [{'green' if admin else 'yellow'}]{'sim' if admin else 'não'}[/]"
+        kv_table(
+            [
+                ("versão", __version__),
+                ("python", sys.version.split()[0]),
+                ("admin", status_dot(admin, "sim", "não")),
+                ("temp", __import__("os").environ.get("TEMP", "—")),
+            ]
+        )
     )
-    console.print(f"TEMP:     [dim]{__import__('os').environ.get('TEMP', '?')}[/]")
 
-    with console.status("Consultando Windows Defender…"):
+    with console.status(f"[{ACCENT_DIM}]consultando Windows Defender…[/]"):
         st = get_defender_status()
+
     if not st.available:
-        console.print(f"[yellow]Defender:[/] {st.error or 'indisponível'}")
-    else:
-        flag = "[green]OK[/]" if st.healthy else "[red]atenção[/]"
         console.print(
-            f"Defender: {flag} · tempo real="
-            f"{st.real_time} · assinaturas={st.signature_age_days} dia(s)"
+            card(
+                "Windows Defender",
+                f"[{WARN}]{st.error or 'indisponível'}[/]\n"
+                f"[dim {MUTED}]comum em ISOs customizadas "
+                "(Ghost Spectre, AtlasOS…)[/]",
+                border=WARN,
+            )
+        )
+    else:
+        rows = [
+            ("tempo real", status_dot(st.real_time)),
+            ("antivírus", status_dot(st.antivirus_enabled)),
+            ("anti-spyware", status_dot(st.antispyware_enabled)),
+            ("comportamento", status_dot(st.behavior_monitor)),
+            ("anti-adulteração", status_dot(st.tamper_protection)),
+            ("nuvem", status_dot(st.cloud_protection)),
+            (
+                "assinaturas",
+                f"{st.signature_age_days or '?'} dia(s) · {st.signature_version or '—'}",
+            ),
+            ("scan rápido", st.quick_scan_end or "—"),
+            ("scan completo", st.full_scan_end or "—"),
+        ]
+        flag = OK if st.healthy else ERR
+        console.print(
+            Panel(
+                kv_table(rows),
+                title=f"[bold {flag}]Windows Defender[/]",
+                border_style=flag,
+                padding=(0, 1),
+            )
         )
 
     if not admin:
         console.print(
-            "\n[yellow]Sem admin:[/] alvos como Windows Update/Prefetch ficam pulados."
+            f"\n[{WARN}]sem admin:[/] alvos como Windows Update/Prefetch ficam pulados."
         )
     _pause()
 
 
 def _do_list_targets() -> None:
-    table = Table(title="Alvos de limpeza", show_lines=False)
-    table.add_column("id", style="cyan")
-    table.add_column("nome")
-    table.add_column("admin", justify="center")
-    table.add_column("descrição", style="dim")
+    console.print(section("Alvos de limpeza"))
+    table = Table(show_header=True, header_style=f"bold {ACCENT}", expand=True)
+    for col in ("id", "nome", "admin", "descrição"):
+        table.add_column(col, style=TEXT if col != "id" else ACCENT_DIM)
     for t in build_targets():
-        table.add_row(t.id, t.name, "sim" if t.requires_admin else "—", t.description)
+        admin = f"[{WARN}]sim[/]" if t.requires_admin else f"[dim {MUTED}]—[/]"
+        table.add_row(t.id, t.name, admin, t.description)
     console.print(table)
     _pause()
 
 
 def _do_list_checks() -> None:
-    table = Table(title="Checks de auditoria", show_lines=False)
-    table.add_column("id", style="cyan")
-    table.add_column("descrição")
+    console.print(section("Checks de auditoria"))
+    table = Table(show_header=True, header_style=f"bold {ACCENT}", expand=True)
+    table.add_column("id", style=ACCENT_DIM)
+    table.add_column("descrição", style=TEXT)
     for cid, (label, _fn) in COLLECTORS.items():
         table.add_row(cid, label)
     console.print(table)
     _pause()
 
 
-def _do_disk() -> None:
-    with console.status("Analisando disco…"):
-        report = analyze_disk("C:\\", depth=2, top_n=12)
+def _do_residue() -> None:
+    console.print(section("Caçador de resíduos"))
+    with console.status(f"[{ACCENT_DIM}]procurando sobras…[/]"):
+        report = run_residue_scan()
 
     console.print(
-        Panel.fit(
-            f"Total: {human_bytes(report.total_bytes)} · "
-            f"usado: {human_bytes(report.used_bytes)} · "
-            f"livre: [green]{human_bytes(report.free_bytes)}[/]",
-            title="Disco C:",
+        kv_table(
+            [
+                ("pastas verificadas", str(report.scanned_folders)),
+                ("chaves uninstall", str(report.scanned_entries)),
+                ("achados", f"[bold]{len(report.items)}[/]"),
+                ("tamanho", f"[bold]{human_bytes(report.total_bytes)}[/]"),
+            ]
         )
     )
+
+    if not report.items:
+        console.print(f"\n[{OK}]nada óbvio por aqui.[/]")
+        _pause()
+        return
+
+    table = Table(
+        show_header=True,
+        header_style=f"bold {ACCENT}",
+        expand=True,
+        border_style="#30363D",
+    )
+    for col in ("tipo", "nome", "caminho", "tam.", "ação"):
+        table.add_column(col, overflow="fold" if col == "caminho" else "ellipsis")
+
+    for item in report.items[:40]:
+        action = f"[{OK}]ok[/]" if item.safe_to_delete else f"[{WARN}]revisar[/]"
+        table.add_row(
+            item.kind.value,
+            item.name,
+            item.path,
+            human_bytes(item.size_bytes),
+            action,
+        )
+    console.print(table)
+    console.print(
+        f"\n[{OK}]apagável com mais segurança:[/] "
+        f"{human_bytes(report.deletable_bytes)} "
+        f"[dim {MUTED}]— confira sempre antes[/]"
+    )
+    _pause()
+
+
+def _do_disk() -> None:
+    console.print(section("Espaço em disco"))
+    with console.status(f"[{ACCENT_DIM}]analisando C:\\…[/]"):
+        report = analyze_disk("C:\\", depth=2, top_n=12)
+
+    free_pct = 100 * report.free_bytes / report.total_bytes if report.total_bytes else 0
+    console.print(
+        kv_table(
+            [
+                (
+                    "partição",
+                    (
+                        f"{human_bytes(report.total_bytes)} · "
+                        f"usado {human_bytes(report.used_bytes)} · "
+                        f"livre [{OK}]{human_bytes(report.free_bytes)}[/] ({free_pct:.0f}%)"
+                    ),
+                ),
+            ]
+        )
+    )
+
     if report.top_dirs:
-        table = Table(title="Maiores pastas", show_lines=False)
-        table.add_column("pasta", overflow="fold")
-        table.add_column("tamanho", justify="right")
+        table = Table(
+            title=f"[bold {ACCENT}]maiores pastas[/]",
+            show_header=True,
+            header_style=MUTED,
+            expand=True,
+        )
+        table.add_column("pasta", overflow="fold", style=TEXT)
+        table.add_column("tamanho", justify="right", style=ACCENT)
+        table.add_column("arquivos", justify="right", style=MUTED)
         for d in report.top_dirs:
-            table.add_row(d.path, human_bytes(d.size_bytes))
+            table.add_row(d.path, human_bytes(d.size_bytes), str(d.file_count))
         console.print(table)
+
     if report.large_files:
-        table = Table(title="Arquivos grandes (>200 MB)", show_lines=False)
-        table.add_column("arquivo", overflow="fold")
-        table.add_column("tamanho", justify="right")
+        table = Table(
+            title=f"[bold {ACCENT}]arquivos grandes[/]",
+            show_header=True,
+            header_style=MUTED,
+            expand=True,
+        )
+        table.add_column("arquivo", overflow="fold", style=TEXT)
+        table.add_column("tamanho", justify="right", style=WARN)
         for f in report.large_files:
             table.add_row(f.path, human_bytes(f.size_bytes))
         console.print(table)
@@ -160,28 +282,33 @@ def _do_disk() -> None:
 
 
 def _do_scan() -> None:
+    console.print(section("Scan VirusTotal"))
     if not load_api_key():
         console.print(
-            "[yellow]Chave do VirusTotal não configurada.[/]\n"
-            "1. Crie uma gratuita em [cyan]https://www.virustotal.com/gui/my-apikey[/]\n"
-            "2. Rode: [cyan]clicleaner scan --set-key SUA_CHAVE[/]\n"
-            "   ou defina [cyan]VT_API_KEY[/] no ambiente."
+            Panel.fit(
+                f"[{WARN}]chave não configurada[/]\n\n"
+                f"  1. crie em [underline {ACCENT}]https://www.virustotal.com/gui/my-apikey[/]\n"
+                f"  2. rode [{ACCENT}]clicleaner scan --set-key SUA_CHAVE[/]\n"
+                f"  3. ou defina [{ACCENT}]VT_API_KEY[/]",
+                border_style=WARN,
+                padding=(1, 2),
+            )
         )
         _pause()
         return
 
-    with console.status("Consultando VirusTotal…"):
+    with console.status(f"[{ACCENT_DIM}]consultando VirusTotal…[/]"):
         report = run_scan(max_files=12)
 
     if report.errors:
         for e in report.errors[:5]:
-            console.print(f"[yellow]![/] {e}")
+            console.print(f"[{WARN}]![/] {e}")
 
     if not report.results:
         _pause()
         return
 
-    table = Table(title="VirusTotal", show_lines=False)
+    table = Table(show_header=True, header_style=f"bold {ACCENT}", expand=True)
     table.add_column("veredito")
     table.add_column("arquivo", overflow="fold")
     table.add_column("detect.", justify="right")
@@ -193,62 +320,28 @@ def _do_scan() -> None:
             detect,
         )
     console.print(table)
+
     bad = [r for r in report.results if r.verdict.value in {"malicious", "suspicious"}]
-    console.print(
-        f"\n[bold red]{len(bad)} suspeito(s)[/] / {len(report.results)} consultados · "
-        f"[dim]{report.lookups_used} chamadas à API[/]"
-    )
-    _pause()
-
-
-def _do_residue() -> None:
-    with console.status("Caçando resíduos…"):
-        report = run_residue_scan()
-
-    console.print(
-        Panel.fit(
-            f"Pastas verificadas: {report.scanned_folders} · "
-            f"chaves uninstall: {report.scanned_entries}\n"
-            f"Achados: [bold]{len(report.items)}[/] · "
-            f"tamanho: [bold]{human_bytes(report.total_bytes)}[/]",
-            title="Resíduos",
-        )
-    )
-    if not report.items:
-        console.print("[green]Nenhum resíduo óbvio encontrado.[/]")
-        _pause()
-        return
-
-    table = Table(show_lines=False)
-    table.add_column("tipo", style="cyan")
-    table.add_column("nome")
-    table.add_column("caminho", style="dim", overflow="fold")
-    table.add_column("tam.", justify="right")
-    table.add_column("ação")
-    for item in report.items[:40]:
-        action = "[green]ok apagar[/]" if item.safe_to_delete else "[yellow]revisar[/]"
-        table.add_row(
-            item.kind.value,
-            item.name,
-            item.path,
-            human_bytes(item.size_bytes),
-            action,
-        )
-    console.print(table)
-    console.print(
-        f"\n[bold]Apagável com mais segurança:[/] {human_bytes(report.deletable_bytes)}"
-    )
+    if bad:
+        console.print(f"\n[bold {ERR}]{len(bad)} com veredito ruim[/]")
+        for r in bad:
+            console.print(f"  [{ERR}]■[/] {r.path}")
+            if r.permalink:
+                console.print(f"    [dim {MUTED}]{r.permalink}[/]")
+    else:
+        console.print(f"\n[{OK}]nenhum malicious/suspicious.[/]")
+    console.print(f"[dim {MUTED}]{report.lookups_used} consultas (free tier ~4/min)[/]")
     _pause()
 
 
 def _do_report() -> None:
     from datetime import datetime
-    from pathlib import Path
 
+    console.print(section("Relatório"))
     stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     out_dir = Path.cwd()
 
-    with console.status("Gerando relatório…"):
+    with console.status(f"[{ACCENT_DIM}]coletando dados…[/]"):
         clean_report = run_clean(build_targets(), dry_run=True)
         audit_report = run_audit(only={"autostart", "services", "listeners"})
         residue_report = run_residue_scan()
@@ -258,49 +351,15 @@ def _do_report() -> None:
         jpath = write_json(payload, out_dir / f"clicleaner-report_{stamp}.json")
         hpath = write_html(payload, out_dir / f"clicleaner-report_{stamp}.html")
 
-    console.print("[green]Relatório gerado:[/]")
-    console.print(f"  [cyan]{jpath}[/]")
-    console.print(f"  [cyan]{hpath}[/]")
+    console.print(f"[{OK}]gerado[/]")
+    console.print(f"  [{ACCENT}]json[/]  {jpath}")
+    console.print(f"  [{ACCENT}]html[/]  {hpath}")
     _pause()
 
 
 def _do_exit() -> None:
-    console.print("[green]Até logo![/]")
+    console.print(f"[{OK}]até logo![/]")
     raise SystemExit(0)
-
-
-def _render_clean_summary(report, *, applied: bool) -> None:
-    table = Table(
-        title="Limpeza" + (" (aplicada)" if applied else " (simulação)"),
-        show_lines=False,
-    )
-    table.add_column("alvo", style="cyan")
-    table.add_column("itens", justify="right")
-    table.add_column("tamanho", justify="right")
-    table.add_column("status")
-    for r in report.results:
-        if r.skipped_reason:
-            status = f"[yellow]pulado[/] ({r.skipped_reason})"
-        elif applied:
-            status = (
-                "[green]ok[/]" if not r.errors else f"[red]{len(r.errors)} erro(s)[/]"
-            )
-        else:
-            status = "[dim]dry-run[/]"
-        size = r.freed_bytes if applied else r.total_bytes
-        table.add_row(r.target.name, str(len(r.items)), human_bytes(size), status)
-    console.print(table)
-
-    if applied:
-        console.print(
-            f"\n[bold green]Removidos[/] {report.total_deleted} itens, "
-            f"{human_bytes(report.total_freed_bytes)} liberados."
-        )
-    else:
-        console.print(
-            f"\n[bold]Potencial:[/] {human_bytes(report.total_found_bytes)}. "
-            "Use a opção [cyan]2[/] para aplicar."
-        )
 
 
 _SEV_RANK = {
@@ -312,32 +371,67 @@ _SEV_RANK = {
 }
 
 
+def _render_clean_summary(report, *, applied: bool) -> None:
+    table = Table(show_header=True, header_style=f"bold {ACCENT}", expand=True)
+    for col in ("alvo", "itens", "tamanho", "status"):
+        table.add_column(
+            col, justify="right" if col in {"itens", "tamanho"} else "left"
+        )
+
+    for r in report.results:
+        if r.skipped_reason:
+            status = f"[{MUTED}]pulado[/]"
+        elif applied:
+            status = (
+                f"[{OK}]ok[/]" if not r.errors else f"[{ERR}]{len(r.errors)} erro[/]"
+            )
+        else:
+            status = f"[{INFO}]dry-run[/]"
+        size = r.freed_bytes if applied else r.total_bytes
+        table.add_row(r.target.name, str(len(r.items)), human_bytes(size), status)
+    console.print(table)
+
+    if applied:
+        console.print(
+            f"\n[{OK}]removidos[/] {report.total_deleted} itens · "
+            f"[bold]{human_bytes(report.total_freed_bytes)}[/] liberados."
+        )
+    else:
+        console.print(
+            f"\n[{INFO}]potencial[/] [bold]{human_bytes(report.total_found_bytes)}[/] · "
+            f"opção [{ACCENT}]2[/] aplica."
+        )
+
+
 def _render_audit(report, *, min_severity: Severity, show_all: bool) -> None:
     counts = report.count_by_severity()
-    summary = "  ".join(
-        f"[{severity_style(s)}]{s.value}={counts[s]}[/]" for s in Severity
-    )
+    parts = []
+    for s in Severity:
+        n = counts[s]
+        if n:
+            parts.append(f"[{severity_style(s)}]{s.value}={n}[/]")
     console.print(
-        Panel.fit(
-            f"Host: [bold]{report.hostname}[/]\nChecks: {len(report.results)}\n{summary}",
-            title="Auditoria",
+        kv_table(
+            [
+                ("host", report.hostname),
+                ("checks", str(len(report.results))),
+                ("achados", "  ".join(parts) or f"[dim {MUTED}]nenhum[/]"),
+            ]
         )
     )
 
-    table = Table(title="Checks", show_lines=False)
-    table.add_column("check", style="cyan")
-    table.add_column("itens", justify="right")
-    table.add_column("achados", justify="right")
-    table.add_column("sev. máx")
-    table.add_column("status")
+    table = Table(show_header=True, header_style=f"bold {ACCENT}", expand=True)
+    for col in ("check", "itens", "achados", "sev", "status"):
+        table.add_column(
+            col, justify="right" if col in {"itens", "achados"} else "left"
+        )
+
     for r in report.results:
         max_sev = r.max_severity
         status = (
-            f"[yellow]pulado[/] ({r.skipped_reason})"
+            f"[{MUTED}]pulado[/]"
             if r.skipped_reason
-            else (
-                "[green]ok[/]" if not r.errors else f"[red]{len(r.errors)} erro(s)[/]"
-            )
+            else (f"[{OK}]ok[/]" if not r.errors else f"[{ERR}]{len(r.errors)} erro[/]")
         )
         table.add_row(
             r.name,
@@ -345,7 +439,7 @@ def _render_audit(report, *, min_severity: Severity, show_all: bool) -> None:
             str(len(r.findings)),
             f"[{severity_style(max_sev)}]{max_sev.value}[/]"
             if max_sev
-            else "[dim]—[/]",
+            else f"[dim {MUTED}]—[/]",
             status,
         )
     console.print(table)
@@ -358,96 +452,70 @@ def _render_audit(report, *, min_severity: Severity, show_all: bool) -> None:
     ]
 
     if not findings:
-        console.print("\n[dim]Nenhum achado acima do limiar.[/]")
+        console.print(f"\n[{OK}]nenhum achado acima do limiar.[/]")
         return
 
-    console.print(f"\n[bold]Achados[/] ({len(findings)}):")
+    console.print(section(f"Achados ({len(findings)})"))
     for f in findings:
         style = severity_style(f.severity)
-        console.print(f"  [{style}]■ {f.severity.value}[/{style}] [bold]{f.title}[/]")
-        console.print(f"    [dim]{f.detail}[/]")
+        console.print(
+            f"  [{style}]■[/] [{style}]{f.severity.value}[/]  [bold]{f.title}[/]"
+        )
+        console.print(f"      [dim {MUTED}]{f.detail}[/]")
         if f.recommendation:
-            console.print(f"    [italic]{f.recommendation}[/]")
+            console.print(f"      [italic {MUTED}]{f.recommendation}[/]")
 
     if not show_all and len(report.all_findings) > len(findings):
         console.print(
-            f"\n[dim]… {len(report.all_findings)} no total. "
-            "Rode a auditoria completa pelo número [cyan]4[/] ou [cyan]5[/].[/]"
+            f"\n[dim {MUTED}]{len(report.all_findings)} no total · "
+            f"opções 4/5 mostram mais[/]"
         )
 
 
 MENU: tuple[MenuEntry, ...] = (
-    MenuEntry(
-        "1",
-        "Limpeza — simular (dry-run)",
-        _do_clean_dry,
-        "seguro, não apaga nada",
-    ),
+    MenuEntry("1", "Limpeza — simular", _do_clean_dry, "dry-run"),
     MenuEntry("2", "Limpeza — aplicar", _do_clean_apply, "remove arquivos"),
     MenuEntry(
         "3",
         "Auditoria rápida",
         lambda: _do_audit(Severity.LOW, only={"autostart", "services", "listeners"}),
-        "sem checagem de assinatura",
+        "sem assinatura",
     ),
     MenuEntry(
-        "4",
-        "Auditoria completa",
-        lambda: _do_audit(Severity.LOW),
-        "inclui unsigned (mais lenta)",
+        "4", "Auditoria completa", lambda: _do_audit(Severity.LOW), "com assinatura"
     ),
     MenuEntry(
-        "5",
-        "Auditoria — só medium+",
-        lambda: _do_audit(Severity.MEDIUM),
-        "foca no que importa",
+        "5", "Auditoria medium+", lambda: _do_audit(Severity.MEDIUM), "só o crítico"
     ),
-    MenuEntry(
-        "6",
-        "Caçar resíduos de software",
-        _do_residue,
-        "pastas/registro/serviços órfãos",
-    ),
-    MenuEntry("7", "Analisar espaço em disco", _do_disk, "maiores pastas e arquivos"),
-    MenuEntry("8", "Scan VirusTotal", _do_scan, "hash de autostart/tarefas"),
-    MenuEntry("9", "Gerar relatório (JSON + HTML)", _do_report),
-    MenuEntry("10", "Listar alvos de limpeza", _do_list_targets),
-    MenuEntry("11", "Listar checks de auditoria", _do_list_checks),
-    MenuEntry("12", "Ambiente / privilégios", _do_doctor),
-    MenuEntry("0", "Sair", _do_exit),
+    MenuEntry("6", "Resíduos de software", _do_residue, "órfãos no sistema"),
+    MenuEntry("7", "Espaço em disco", _do_disk, "top pastas/arquivos"),
+    MenuEntry("8", "Scan VirusTotal", _do_scan, "hash + reputação"),
+    MenuEntry("9", "Relatório JSON + HTML", _do_report, "exporta snapshot"),
+    MenuEntry("10", "Alvos de limpeza", _do_list_targets, "lista do clean"),
+    MenuEntry("11", "Checks de auditoria", _do_list_checks, "lista do audit"),
+    MenuEntry("12", "Ambiente + Defender", _do_doctor, "status do sistema"),
+    MenuEntry("0", "Sair", _do_exit, ""),
 )
 
 
 def render_menu() -> None:
-    console.print(
-        Panel.fit(
-            f"[bold cyan]CLICleaner[/] v{__version__}\n"
-            "[dim]Higiene e auditoria de sistema — auxiliar do Windows Defender[/]",
-            border_style="cyan",
-        )
-    )
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("n", style="bold yellow", justify="right", width=2)
-    table.add_column("opção", style="white")
-    table.add_column("nota", style="dim")
-    for entry in MENU:
-        table.add_row(entry.number, entry.label, entry.hint)
-    console.print(table)
+    console.print(banner_panel(__version__))
+    console.print(menu_table([(e.number, e.label, e.hint) for e in MENU]))
+    console.print()
 
 
 def run_menu() -> None:
     while True:
-        console.print()
         render_menu()
         try:
-            choice = console.input("\n[bold cyan]Escolha uma opção:[/] ").strip()
+            choice = console.input(f"  [bold {ACCENT}]▸[/] ").strip()
         except (EOFError, KeyboardInterrupt):
-            console.print("\n[green]Até logo![/]")
+            console.print(f"\n[{OK}]até logo![/]")
             return
 
         entry = next((e for e in MENU if e.number == choice), None)
         if entry is None:
-            console.print(f"[yellow]Opção inválida:[/] {choice!r}. Digite 0–12.")
+            console.print(f"[{WARN}]opção inválida:[/] {choice!r}  [dim]use 0–12[/]")
             continue
 
         console.print()
@@ -456,6 +524,6 @@ def run_menu() -> None:
         except SystemExit:
             raise
         except KeyboardInterrupt:
-            console.print("\n[yellow]Interrompido.[/]")
+            console.print(f"\n[{WARN}]interrompido.[/]")
         except Exception as exc:  # noqa: BLE001 — menu não deve derrubar o app
-            console.print(f"[red]Erro:[/] {type(exc).__name__}: {exc}")
+            console.print(f"[{ERR}]erro:[/] {type(exc).__name__}: {exc}")
