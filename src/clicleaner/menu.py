@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC
 
 from rich.console import Console
 from rich.panel import Panel
@@ -15,6 +16,8 @@ from clicleaner.audit.collectors import COLLECTORS
 from clicleaner.audit.models import Severity
 from clicleaner.clean import build_targets, is_admin, run_clean
 from clicleaner.clean.cleaner import human_bytes
+from clicleaner.report import build_report_payload, write_html, write_json
+from clicleaner.residue import run_residue_scan
 
 console = Console()
 
@@ -108,6 +111,69 @@ def _do_list_checks() -> None:
     for cid, (label, _fn) in COLLECTORS.items():
         table.add_row(cid, label)
     console.print(table)
+    _pause()
+
+
+def _do_residue() -> None:
+    with console.status("Caçando resíduos…"):
+        report = run_residue_scan()
+
+    console.print(
+        Panel.fit(
+            f"Pastas verificadas: {report.scanned_folders} · "
+            f"chaves uninstall: {report.scanned_entries}\n"
+            f"Achados: [bold]{len(report.items)}[/] · "
+            f"tamanho: [bold]{human_bytes(report.total_bytes)}[/]",
+            title="Resíduos",
+        )
+    )
+    if not report.items:
+        console.print("[green]Nenhum resíduo óbvio encontrado.[/]")
+        _pause()
+        return
+
+    table = Table(show_lines=False)
+    table.add_column("tipo", style="cyan")
+    table.add_column("nome")
+    table.add_column("caminho", style="dim", overflow="fold")
+    table.add_column("tam.", justify="right")
+    table.add_column("ação")
+    for item in report.items[:40]:
+        action = "[green]ok apagar[/]" if item.safe_to_delete else "[yellow]revisar[/]"
+        table.add_row(
+            item.kind.value,
+            item.name,
+            item.path,
+            human_bytes(item.size_bytes),
+            action,
+        )
+    console.print(table)
+    console.print(
+        f"\n[bold]Apagável com mais segurança:[/] {human_bytes(report.deletable_bytes)}"
+    )
+    _pause()
+
+
+def _do_report() -> None:
+    from datetime import datetime
+    from pathlib import Path
+
+    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    out_dir = Path.cwd()
+
+    with console.status("Gerando relatório…"):
+        clean_report = run_clean(build_targets(), dry_run=True)
+        audit_report = run_audit(only={"autostart", "services", "listeners"})
+        residue_report = run_residue_scan()
+        payload = build_report_payload(
+            clean=clean_report, audit=audit_report, residue=residue_report
+        )
+        jpath = write_json(payload, out_dir / f"clicleaner-report_{stamp}.json")
+        hpath = write_html(payload, out_dir / f"clicleaner-report_{stamp}.html")
+
+    console.print("[green]Relatório gerado:[/]")
+    console.print(f"  [cyan]{jpath}[/]")
+    console.print(f"  [cyan]{hpath}[/]")
     _pause()
 
 
@@ -249,9 +315,16 @@ MENU: tuple[MenuEntry, ...] = (
         lambda: _do_audit(Severity.MEDIUM),
         "foca no que importa",
     ),
-    MenuEntry("6", "Listar alvos de limpeza", _do_list_targets),
-    MenuEntry("7", "Listar checks de auditoria", _do_list_checks),
-    MenuEntry("8", "Ambiente / privilégios", _do_doctor),
+    MenuEntry(
+        "6",
+        "Caçar resíduos de software",
+        _do_residue,
+        "pastas/registro/serviços órfãos",
+    ),
+    MenuEntry("7", "Gerar relatório (JSON + HTML)", _do_report),
+    MenuEntry("8", "Listar alvos de limpeza", _do_list_targets),
+    MenuEntry("9", "Listar checks de auditoria", _do_list_checks),
+    MenuEntry("10", "Ambiente / privilégios", _do_doctor),
     MenuEntry("0", "Sair", _do_exit),
 )
 
@@ -285,7 +358,7 @@ def run_menu() -> None:
 
         entry = next((e for e in MENU if e.number == choice), None)
         if entry is None:
-            console.print(f"[yellow]Opção inválida:[/] {choice!r}. Digite 0–8.")
+            console.print(f"[yellow]Opção inválida:[/] {choice!r}. Digite 0–10.")
             continue
 
         console.print()

@@ -31,9 +31,11 @@ clicleaner
  3  Auditoria rápida               autostart, serviços, portas
  4  Auditoria completa             inclui checagem de assinatura
  5  Auditoria — só medium+         foca no que importa
- 6  Listar alvos de limpeza
- 7  Listar checks de auditoria
- 8  Ambiente / privilégios
+ 6  Caçar resíduos de software     pastas/registro/serviços órfãos
+ 7  Gerar relatório (JSON + HTML)
+ 8  Listar alvos de limpeza
+ 9  Listar checks de auditoria
+10  Ambiente / privilégios
  0  Sair
 ```
 
@@ -44,6 +46,8 @@ clicleaner clean               # mostra o que seria limpo (não apaga)
 clicleaner clean --apply       # limpa de verdade
 clicleaner audit               # auditoria completa
 clicleaner audit -m medium     # só achados medium+
+clicleaner residue             # procura resíduos de software
+clicleaner report              # relatório JSON + HTML
 clicleaner doctor
 ```
 
@@ -53,11 +57,16 @@ clicleaner doctor
 
 **Auditoria** — entradas de autostart, serviços automáticos, tarefas agendadas, portas em escuta e executáveis sem assinatura.
 
+**Resíduos** — pastas órfãs (sem desinstalação), chaves de registro quebradas, serviços e tarefas apontando para arquivos que não existem mais.
+
+**Relatório** — exporta o resultado em JSON e HTML para guardar ou compartilhar.
+
 ## Segurança
 
 - Limpeza é **dry-run por padrão** — nada é apagado sem confirmação
 - Com filtro de idade, só remove arquivos antigos (nunca pastas inteiras)
-- Auditoria é somente leitura
+- Auditoria e caçada de resíduos são somente leitura
+- Pastas em `Program Files` / AppData são marcadas como `revisar` — não são apagadas sozinhas
 
 ## Requisitos
 

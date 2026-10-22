@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -15,6 +17,8 @@ from clicleaner.audit.collectors import COLLECTORS
 from clicleaner.audit.models import Severity
 from clicleaner.clean import build_targets, is_admin, run_clean
 from clicleaner.clean.cleaner import human_bytes
+from clicleaner.report import build_report_payload, write_html, write_json
+from clicleaner.residue import run_residue_scan
 
 app = typer.Typer(
     name="clicleaner",
@@ -294,6 +298,140 @@ def _render_audit_report(report, *, min_severity: Severity, show_all: bool) -> N
         console.print(
             f"\n[dim]… use [cyan]--all[/] para ver os {len(report.all_findings)} achados.[/]"
         )
+
+
+@app.command()
+def residue(
+    only: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--only",
+            "-o",
+            help="Só estes tipos: folders, uninstall, services, tasks, startup.",
+        ),
+    ] = None,
+    exclude: Annotated[
+        list[str] | None,
+        typer.Option("--exclude", "-x", help="Pula estes tipos."),
+    ] = None,
+) -> None:
+    """Procura resíduos de software (pastas órfãs, registro, serviços quebrados)."""
+    with console.status("Caçando resíduos…"):
+        report = run_residue_scan(
+            only=set(only) if only else None,
+            exclude=set(exclude) if exclude else None,
+        )
+    _render_residue(report)
+
+
+def _render_residue(report) -> None:
+    from clicleaner.residue.models import ResidueKind
+
+    labels = {
+        ResidueKind.FOLDER: "Pastas",
+        ResidueKind.UNINSTALL_ENTRY: "Registro (uninstall)",
+        ResidueKind.SERVICE: "Serviços",
+        ResidueKind.TASK: "Tarefas",
+        ResidueKind.STARTUP: "Startup",
+        ResidueKind.DRIVER: "Drivers",
+    }
+
+    console.print(
+        Panel.fit(
+            f"Host: [bold]{report.hostname}[/]\n"
+            f"Pastas verificadas: {report.scanned_folders} · "
+            f"Chaves uninstall: {report.scanned_entries}\n"
+            f"Achados: [bold]{len(report.items)}[/] · "
+            f"tamanho: [bold]{human_bytes(report.total_bytes)}[/]",
+            title="Resíduos",
+        )
+    )
+
+    if report.errors:
+        for e in report.errors[:5]:
+            console.print(f"  [yellow]![/] {e}")
+
+    if not report.items:
+        console.print("[green]Nenhum resíduo óbvio encontrado.[/]")
+        return
+
+    table = Table(show_lines=False)
+    table.add_column("tipo", style="cyan")
+    table.add_column("nome")
+    table.add_column("caminho", style="dim", overflow="fold")
+    table.add_column("tam.", justify="right")
+    table.add_column("ação")
+
+    for item in report.items[:60]:
+        action = "[green]ok apagar[/]" if item.safe_to_delete else "[yellow]revisar[/]"
+        table.add_row(
+            labels.get(item.kind, item.kind.value),
+            item.name,
+            item.path,
+            human_bytes(item.size_bytes),
+            action,
+        )
+    console.print(table)
+
+    # Detalhes
+    console.print("\n[bold]Notas:[/]")
+    for item in report.items[:20]:
+        if item.note:
+            console.print(f"  [cyan]{item.name}[/] — {item.note}")
+
+    console.print(
+        f"\n[bold]Resumo:[/] {human_bytes(report.deletable_bytes)} em pastas "
+        "apagáveis com mais segurança (sempre confira antes)."
+    )
+
+
+@app.command()
+def report(
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", "-O", help="Pasta ou arquivo de saída."),
+    ] = None,
+    formats: Annotated[
+        list[str] | None,
+        typer.Option("--format", "-f", help="json, html (padrão: ambos)."),
+    ] = None,
+    skip_audit: Annotated[
+        bool,
+        typer.Option("--no-audit", help="Não roda auditoria no relatório."),
+    ] = False,
+    skip_residue: Annotated[
+        bool,
+        typer.Option("--no-residue", help="Não roda caçada de resíduos."),
+    ] = False,
+) -> None:
+    """Gera relatório consolidado (JSON/HTML) de limpeza + auditoria + resíduos."""
+    import platform
+    from datetime import datetime
+
+    fmts = {f.lower() for f in formats} if formats else {"json", "html"}
+    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    base = out or Path.cwd() / "clicleaner-report"
+    if base.suffix.lower() in {".json", ".html"}:
+        base = base.with_suffix("")
+
+    with console.status("Coletando dados para o relatório…"):
+        clean_report = run_clean(build_targets(), dry_run=True)
+        audit_report = None if skip_audit else run_audit()
+        residue_report = None if skip_residue else run_residue_scan()
+
+    payload = build_report_payload(
+        clean=clean_report, audit=audit_report, residue=residue_report
+    )
+
+    written: list[Path] = []
+    if "json" in fmts:
+        written.append(write_json(payload, base.parent / f"{base.name}_{stamp}.json"))
+    if "html" in fmts:
+        written.append(write_html(payload, base.parent / f"{base.name}_{stamp}.html"))
+
+    console.print(f"[green]Relatório gerado[/] ({platform.node()}):")
+    for w in written:
+        console.print(f"  [cyan]{w}[/]")
 
 
 @app.command()
