@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "CLICleaner — higiene e auditoria de sistema via CLI (auxiliar do Windows Defender)"
 readme = "README.md"
 authors = [
-    { name = "Rafael", email = "rafeltorress1@gmail.com" }
+    { name = "Rafael" }
 ]
 requires-python = "==3.12.*"
 license = "MIT"
