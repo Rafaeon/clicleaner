@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -19,6 +20,7 @@ from clicleaner.clean.cleaner import human_bytes
 from clicleaner.disk import analyze_disk
 from clicleaner.report import build_report_payload, write_html, write_json
 from clicleaner.residue import run_residue_scan
+from clicleaner.scan import format_verdict, load_api_key, run_scan
 
 console = Console()
 
@@ -141,6 +143,48 @@ def _do_disk() -> None:
         for f in report.large_files:
             table.add_row(f.path, human_bytes(f.size_bytes))
         console.print(table)
+    _pause()
+
+
+def _do_scan() -> None:
+    if not load_api_key():
+        console.print(
+            "[yellow]Chave do VirusTotal não configurada.[/]\n"
+            "1. Crie uma gratuita em [cyan]https://www.virustotal.com/gui/my-apikey[/]\n"
+            "2. Rode: [cyan]clicleaner scan --set-key SUA_CHAVE[/]\n"
+            "   ou defina [cyan]VT_API_KEY[/] no ambiente."
+        )
+        _pause()
+        return
+
+    with console.status("Consultando VirusTotal…"):
+        report = run_scan(max_files=12)
+
+    if report.errors:
+        for e in report.errors[:5]:
+            console.print(f"[yellow]![/] {e}")
+
+    if not report.results:
+        _pause()
+        return
+
+    table = Table(title="VirusTotal", show_lines=False)
+    table.add_column("veredito")
+    table.add_column("arquivo", overflow="fold")
+    table.add_column("detect.", justify="right")
+    for r in report.results:
+        detect = f"{r.malicious}/{r.total_engines}" if r.total_engines else "—"
+        table.add_row(
+            format_verdict(r.verdict),
+            Path(r.path).name if r.path else r.sha256[:12],
+            detect,
+        )
+    console.print(table)
+    bad = [r for r in report.results if r.verdict.value in {"malicious", "suspicious"}]
+    console.print(
+        f"\n[bold red]{len(bad)} suspeito(s)[/] / {len(report.results)} consultados · "
+        f"[dim]{report.lookups_used} chamadas à API[/]"
+    )
     _pause()
 
 
@@ -352,10 +396,11 @@ MENU: tuple[MenuEntry, ...] = (
         "pastas/registro/serviços órfãos",
     ),
     MenuEntry("7", "Analisar espaço em disco", _do_disk, "maiores pastas e arquivos"),
-    MenuEntry("8", "Gerar relatório (JSON + HTML)", _do_report),
-    MenuEntry("9", "Listar alvos de limpeza", _do_list_targets),
-    MenuEntry("10", "Listar checks de auditoria", _do_list_checks),
-    MenuEntry("11", "Ambiente / privilégios", _do_doctor),
+    MenuEntry("8", "Scan VirusTotal", _do_scan, "hash de autostart/tarefas"),
+    MenuEntry("9", "Gerar relatório (JSON + HTML)", _do_report),
+    MenuEntry("10", "Listar alvos de limpeza", _do_list_targets),
+    MenuEntry("11", "Listar checks de auditoria", _do_list_checks),
+    MenuEntry("12", "Ambiente / privilégios", _do_doctor),
     MenuEntry("0", "Sair", _do_exit),
 )
 
@@ -389,7 +434,7 @@ def run_menu() -> None:
 
         entry = next((e for e in MENU if e.number == choice), None)
         if entry is None:
-            console.print(f"[yellow]Opção inválida:[/] {choice!r}. Digite 0–11.")
+            console.print(f"[yellow]Opção inválida:[/] {choice!r}. Digite 0–12.")
             continue
 
         console.print()

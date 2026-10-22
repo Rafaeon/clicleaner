@@ -20,6 +20,7 @@ from clicleaner.clean.cleaner import human_bytes
 from clicleaner.disk import analyze_disk
 from clicleaner.report import build_report_payload, write_html, write_json
 from clicleaner.residue import run_residue_scan
+from clicleaner.scan import format_verdict, load_api_key, run_scan, save_api_key
 
 app = typer.Typer(
     name="clicleaner",
@@ -490,6 +491,82 @@ def disk(
         for f in report.large_files:
             table.add_row(f.path, human_bytes(f.size_bytes))
         console.print(table)
+
+
+@app.command()
+def scan(
+    paths: Annotated[
+        list[str] | None,
+        typer.Argument(
+            help="Arquivos ou pastas. Vazio = autostart/tarefas da auditoria."
+        ),
+    ] = None,
+    max_files: Annotated[
+        int,
+        typer.Option(
+            "--max-files", "-n", help="Máximo de consultas (free tier é limitado)."
+        ),
+    ] = 25,
+    set_key: Annotated[
+        str | None,
+        typer.Option("--set-key", help="Salva a chave da API do VirusTotal e sai."),
+    ] = None,
+) -> None:
+    """Consulta hash de arquivos no VirusTotal (não envia o arquivo)."""
+    if set_key:
+        path = save_api_key(set_key)
+        console.print(f"[green]Chave salva em[/] [cyan]{path}[/]")
+        return
+
+    key_hint = "configurada" if load_api_key() else "NÃO configurada"
+    console.print(f"[dim]Chave VirusTotal: {key_hint}[/]")
+
+    with console.status("Consultando VirusTotal (pode demorar no free tier)…"):
+        report = run_scan(paths, max_files=max_files)
+
+    if not report.api_key_set:
+        for e in report.errors:
+            console.print(f"[yellow]{e}[/]")
+        raise typer.Exit(code=1)
+
+    if report.errors:
+        for e in report.errors[:8]:
+            console.print(f"  [yellow]![/] {e}")
+
+    if not report.results:
+        console.print("[dim]Nada para consultar.[/]")
+        return
+
+    table = Table(title="VirusTotal", show_lines=False)
+    table.add_column("veredito")
+    table.add_column("arquivo", overflow="fold")
+    table.add_column("detect.", justify="right")
+    table.add_column("sha256", overflow="ellipsis", max_width=16)
+
+    for r in report.results:
+        detect = f"{r.malicious}/{r.total_engines}" if r.total_engines else "—"
+        table.add_row(
+            format_verdict(r.verdict),
+            Path(r.path).name if r.path else r.sha256[:12],
+            detect,
+            r.sha256,
+        )
+    console.print(table)
+
+    bad = [r for r in report.results if r.verdict.value in {"malicious", "suspicious"}]
+    if bad:
+        console.print(f"\n[bold red]{len(bad)} arquivo(s) com veredito ruim:[/]")
+        for r in bad:
+            console.print(f"  [red]■[/] {r.path}")
+            if r.permalink:
+                console.print(f"    [dim]{r.permalink}[/]")
+    else:
+        console.print("\n[green]Nenhum veredito malicious/suspicious.[/]")
+
+    console.print(
+        f"\n[dim]Consultas usadas: {report.lookups_used} "
+        "(free tier: 4/min, 500/dia).[/]"
+    )
 
 
 @app.command()

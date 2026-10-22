@@ -33,10 +33,11 @@ clicleaner
  5  Auditoria — só medium+         foca no que importa
  6  Caçar resíduos de software     pastas/registro/serviços órfãos
  7  Analisar espaço em disco       maiores pastas e arquivos
- 8  Gerar relatório (JSON + HTML)
- 9  Listar alvos de limpeza
-10  Listar checks de auditoria
-11  Ambiente / privilégios
+ 8  Scan VirusTotal                hash de autostart/tarefas
+ 9  Gerar relatório (JSON + HTML)
+10  Listar alvos de limpeza
+11  Listar checks de auditoria
+12  Ambiente / privilégios
  0  Sair
 ```
 
@@ -49,9 +50,19 @@ clicleaner audit               # auditoria completa
 clicleaner audit -m medium     # só achados medium+
 clicleaner residue             # procura resíduos de software
 clicleaner disk                # o que está ocupando o disco
+clicleaner scan                # hash + VirusTotal (precisa de chave)
+clicleaner scan --set-key XXX  # salva a chave da API
 clicleaner report              # relatório JSON + HTML
 clicleaner doctor
 ```
+
+### VirusTotal
+
+1. Crie uma chave grátis em <https://www.virustotal.com/gui/my-apikey>
+2. `clicleaner scan --set-key SUA_CHAVE` (ou variável `VT_API_KEY`)
+3. `clicleaner scan` consulta o **hash** dos binários de autostart/tarefas — **não envia o arquivo**
+
+Free tier: ~4 consultas/min. Por padrão o scan usa no máximo 25 arquivos.
 
 ## O que faz
 
@@ -62,6 +73,8 @@ clicleaner doctor
 **Resíduos** — pastas órfãs (sem desinstalação), chaves de registro quebradas, serviços e tarefas apontando para arquivos que não existem mais. Ferramentas de Windows customizado (Ghost Spectre, AtlasOS…) não são sinalizadas.
 
 **Disco** — maiores pastas e arquivos para achar o que está comendo espaço.
+
+**Scan (VirusTotal)** — consulta a reputação de executáveis por hash (opcional, requer chave gratuita).
 
 **Relatório** — exporta o resultado em JSON e HTML para guardar ou compartilhar.
 
