@@ -32,10 +32,11 @@ clicleaner
  4  Auditoria completa             inclui checagem de assinatura
  5  Auditoria — só medium+         foca no que importa
  6  Caçar resíduos de software     pastas/registro/serviços órfãos
- 7  Gerar relatório (JSON + HTML)
- 8  Listar alvos de limpeza
- 9  Listar checks de auditoria
-10  Ambiente / privilégios
+ 7  Analisar espaço em disco       maiores pastas e arquivos
+ 8  Gerar relatório (JSON + HTML)
+ 9  Listar alvos de limpeza
+10  Listar checks de auditoria
+11  Ambiente / privilégios
  0  Sair
 ```
 
@@ -47,6 +48,7 @@ clicleaner clean --apply       # limpa de verdade
 clicleaner audit               # auditoria completa
 clicleaner audit -m medium     # só achados medium+
 clicleaner residue             # procura resíduos de software
+clicleaner disk                # o que está ocupando o disco
 clicleaner report              # relatório JSON + HTML
 clicleaner doctor
 ```
@@ -57,7 +59,9 @@ clicleaner doctor
 
 **Auditoria** — entradas de autostart, serviços automáticos, tarefas agendadas, portas em escuta e executáveis sem assinatura.
 
-**Resíduos** — pastas órfãs (sem desinstalação), chaves de registro quebradas, serviços e tarefas apontando para arquivos que não existem mais.
+**Resíduos** — pastas órfãs (sem desinstalação), chaves de registro quebradas, serviços e tarefas apontando para arquivos que não existem mais. Ferramentas de Windows customizado (Ghost Spectre, AtlasOS…) não são sinalizadas.
+
+**Disco** — maiores pastas e arquivos para achar o que está comendo espaço.
 
 **Relatório** — exporta o resultado em JSON e HTML para guardar ou compartilhar.
 

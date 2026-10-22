@@ -17,6 +17,7 @@ from clicleaner.audit.collectors import COLLECTORS
 from clicleaner.audit.models import Severity
 from clicleaner.clean import build_targets, is_admin, run_clean
 from clicleaner.clean.cleaner import human_bytes
+from clicleaner.disk import analyze_disk
 from clicleaner.report import build_report_payload, write_html, write_json
 from clicleaner.residue import run_residue_scan
 
@@ -432,6 +433,63 @@ def report(
     console.print(f"[green]Relatório gerado[/] ({platform.node()}):")
     for w in written:
         console.print(f"  [cyan]{w}[/]")
+
+
+@app.command()
+def disk(
+    root: Annotated[
+        str,
+        typer.Option("--root", "-r", help="Unidade/pasta raiz (padrão C:\\)."),
+    ] = "C:\\",
+    depth: Annotated[
+        int,
+        typer.Option("--depth", "-d", help="Profundidade de pastas (1–3)."),
+    ] = 2,
+    top: Annotated[
+        int,
+        typer.Option("--top", "-n", help="Quantos itens mostrar."),
+    ] = 15,
+    large_mb: Annotated[
+        int,
+        typer.Option("--large-mb", help="Tamanho mínimo de arquivo grande."),
+    ] = 200,
+) -> None:
+    """Mostra o que está ocupando espaço no disco."""
+    with console.status("Analisando espaço em disco…"):
+        report = analyze_disk(
+            root, depth=max(1, min(depth, 3)), top_n=top, large_file_mb=large_mb
+        )
+
+    console.print(
+        Panel.fit(
+            f"Raiz: [bold]{report.root}[/]\n"
+            f"Total: {human_bytes(report.total_bytes)} · "
+            f"usado: {human_bytes(report.used_bytes)} · "
+            f"livre: [green]{human_bytes(report.free_bytes)}[/]",
+            title="Disco",
+        )
+    )
+
+    if report.errors:
+        for e in report.errors[:5]:
+            console.print(f"  [yellow]![/] {e}")
+
+    if report.top_dirs:
+        table = Table(title="Maiores pastas", show_lines=False)
+        table.add_column("pasta", overflow="fold")
+        table.add_column("tamanho", justify="right")
+        table.add_column("arquivos", justify="right")
+        for d in report.top_dirs:
+            table.add_row(d.path, human_bytes(d.size_bytes), str(d.file_count))
+        console.print(table)
+
+    if report.large_files:
+        table = Table(title=f"Arquivos > {large_mb} MB", show_lines=False)
+        table.add_column("arquivo", overflow="fold")
+        table.add_column("tamanho", justify="right")
+        for f in report.large_files:
+            table.add_row(f.path, human_bytes(f.size_bytes))
+        console.print(table)
 
 
 @app.command()

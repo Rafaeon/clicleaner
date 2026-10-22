@@ -16,6 +16,7 @@ from clicleaner.audit.collectors import COLLECTORS
 from clicleaner.audit.models import Severity
 from clicleaner.clean import build_targets, is_admin, run_clean
 from clicleaner.clean.cleaner import human_bytes
+from clicleaner.disk import analyze_disk
 from clicleaner.report import build_report_payload, write_html, write_json
 from clicleaner.residue import run_residue_scan
 
@@ -111,6 +112,35 @@ def _do_list_checks() -> None:
     for cid, (label, _fn) in COLLECTORS.items():
         table.add_row(cid, label)
     console.print(table)
+    _pause()
+
+
+def _do_disk() -> None:
+    with console.status("Analisando disco…"):
+        report = analyze_disk("C:\\", depth=2, top_n=12)
+
+    console.print(
+        Panel.fit(
+            f"Total: {human_bytes(report.total_bytes)} · "
+            f"usado: {human_bytes(report.used_bytes)} · "
+            f"livre: [green]{human_bytes(report.free_bytes)}[/]",
+            title="Disco C:",
+        )
+    )
+    if report.top_dirs:
+        table = Table(title="Maiores pastas", show_lines=False)
+        table.add_column("pasta", overflow="fold")
+        table.add_column("tamanho", justify="right")
+        for d in report.top_dirs:
+            table.add_row(d.path, human_bytes(d.size_bytes))
+        console.print(table)
+    if report.large_files:
+        table = Table(title="Arquivos grandes (>200 MB)", show_lines=False)
+        table.add_column("arquivo", overflow="fold")
+        table.add_column("tamanho", justify="right")
+        for f in report.large_files:
+            table.add_row(f.path, human_bytes(f.size_bytes))
+        console.print(table)
     _pause()
 
 
@@ -321,10 +351,11 @@ MENU: tuple[MenuEntry, ...] = (
         _do_residue,
         "pastas/registro/serviços órfãos",
     ),
-    MenuEntry("7", "Gerar relatório (JSON + HTML)", _do_report),
-    MenuEntry("8", "Listar alvos de limpeza", _do_list_targets),
-    MenuEntry("9", "Listar checks de auditoria", _do_list_checks),
-    MenuEntry("10", "Ambiente / privilégios", _do_doctor),
+    MenuEntry("7", "Analisar espaço em disco", _do_disk, "maiores pastas e arquivos"),
+    MenuEntry("8", "Gerar relatório (JSON + HTML)", _do_report),
+    MenuEntry("9", "Listar alvos de limpeza", _do_list_targets),
+    MenuEntry("10", "Listar checks de auditoria", _do_list_checks),
+    MenuEntry("11", "Ambiente / privilégios", _do_doctor),
     MenuEntry("0", "Sair", _do_exit),
 )
 
@@ -358,7 +389,7 @@ def run_menu() -> None:
 
         entry = next((e for e in MENU if e.number == choice), None)
         if entry is None:
-            console.print(f"[yellow]Opção inválida:[/] {choice!r}. Digite 0–10.")
+            console.print(f"[yellow]Opção inválida:[/] {choice!r}. Digite 0–11.")
             continue
 
         console.print()

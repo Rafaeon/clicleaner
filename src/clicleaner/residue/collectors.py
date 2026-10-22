@@ -90,6 +90,24 @@ _KNOWN_APPDATA = {
     "yarn",
 }
 
+# Ferramentas legítimas de ISO/Windows customizado (ex.: Ghost Spectre).
+_KNOWN_ROOT_TOOLS = {
+    "ghost toolbox",
+    "ghosttoolbox",
+    "ghost spectre",
+    "ghostspectre",
+    "gamingos",
+    "atlasos",
+    "atlas",
+    "windows-ameliorated",
+    "ameliorated",
+    "nano11",
+    "revios",
+    "revi-os",
+    "tiny11",
+    "tiny10",
+}
+
 _MAX_RECENT_DAYS = 45
 
 
@@ -280,6 +298,9 @@ def find_folder_residues() -> tuple[list[ResidueItem], int, list[str]]:
             if is_pf and name_l in _KNOWN_PF:
                 continue
             if (is_user or is_programdata) and name_l in _KNOWN_APPDATA:
+                continue
+            # Ferramentas de Windows customizado (Ghost Spectre, AtlasOS…)
+            if is_drive_root and name_l in _KNOWN_ROOT_TOOLS:
                 continue
 
             # Não sinalizar se o nome aparece em apps instalados
