@@ -17,6 +17,7 @@ from clicleaner.audit.collectors import COLLECTORS
 from clicleaner.audit.models import Severity
 from clicleaner.clean import build_targets, is_admin, run_clean
 from clicleaner.clean.cleaner import human_bytes
+from clicleaner.defender import get_defender_status
 from clicleaner.disk import analyze_disk
 from clicleaner.report import build_report_payload, write_html, write_json
 from clicleaner.residue import run_residue_scan
@@ -88,6 +89,18 @@ def _do_doctor() -> None:
         f"Admin:    [{'green' if admin else 'yellow'}]{'sim' if admin else 'não'}[/]"
     )
     console.print(f"TEMP:     [dim]{__import__('os').environ.get('TEMP', '?')}[/]")
+
+    with console.status("Consultando Windows Defender…"):
+        st = get_defender_status()
+    if not st.available:
+        console.print(f"[yellow]Defender:[/] {st.error or 'indisponível'}")
+    else:
+        flag = "[green]OK[/]" if st.healthy else "[red]atenção[/]"
+        console.print(
+            f"Defender: {flag} · tempo real="
+            f"{st.real_time} · assinaturas={st.signature_age_days} dia(s)"
+        )
+
     if not admin:
         console.print(
             "\n[yellow]Sem admin:[/] alvos como Windows Update/Prefetch ficam pulados."

@@ -17,6 +17,7 @@ from clicleaner.audit.collectors import COLLECTORS
 from clicleaner.audit.models import Severity
 from clicleaner.clean import build_targets, is_admin, run_clean
 from clicleaner.clean.cleaner import human_bytes
+from clicleaner.defender import get_defender_status
 from clicleaner.disk import analyze_disk
 from clicleaner.report import build_report_payload, write_html, write_json
 from clicleaner.residue import run_residue_scan
@@ -571,7 +572,7 @@ def scan(
 
 @app.command()
 def doctor() -> None:
-    """Verifica privilégios e saúde básica do ambiente."""
+    """Verifica privilégios, ambiente e status do Windows Defender."""
     import os
     import sys
 
@@ -587,6 +588,44 @@ def doctor() -> None:
         console.print(
             "\n[yellow]Sem admin:[/] alvos como Windows Update/Prefetch ficam pulados. "
             "Rode o terminal como administrador para cobrir tudo."
+        )
+
+    console.print()
+    with console.status("Consultando Windows Defender…"):
+        status = get_defender_status()
+
+    if not status.available:
+        console.print(
+            Panel.fit(
+                f"[yellow]{status.error or 'Defender indisponível'}[/]\n"
+                "[dim]Comum em ISOs customizadas (Ghost Spectre, AtlasOS…) "
+                "ou com outro AV como padrão.[/]",
+                title="Windows Defender",
+            )
+        )
+        return
+
+    healthy = status.healthy
+    icon = "[green]OK[/]" if healthy else "[red]atenção[/]"
+    body = "\n".join(
+        [
+            f"Proteção em tempo real:     {status.real_time and '[green]sim[/]' or '[red]não[/]'}",
+            f"Antivírus ativo:            {status.antivirus_enabled and '[green]sim[/]' or '[red]não[/]'}",
+            f"Anti-spyware:               {status.antispyware_enabled and '[green]sim[/]' or '[red]não[/]'}",
+            f"Monitor de comportamento:   {status.behavior_monitor and '[green]sim[/]' or '[yellow]não[/]'}",
+            f"Anti-adulteração:           {status.tamper_protection and '[green]sim[/]' or '[yellow]não[/]'}",
+            f"Proteção em nuvem:          {status.cloud_protection and '[green]sim[/]' or '[yellow]não[/]'}",
+            f"Assinaturas:                {status.signature_age_days} dia(s) · {status.signature_version or '—'}",
+            f"Último scan rápido:         {status.quick_scan_end or '—'}",
+            f"Último scan completo:       {status.full_scan_end or '—'}",
+        ]
+    )
+    console.print(Panel.fit(body, title=f"Windows Defender — {icon}"))
+
+    if status.signature_age_days is not None and status.signature_age_days > 3:
+        console.print(
+            "[yellow]Assinaturas desatualizadas.[/] Rode "
+            "[cyan]Update-MpSignature[/] no PowerShell (admin)."
         )
 
 
